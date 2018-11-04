@@ -106,3 +106,4 @@ venv.bak/
 #Ulis exceptions
 /bin
 /include
+pip-selfcheck.json
