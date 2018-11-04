@@ -6,9 +6,11 @@ if virtualmode == False:
     from smbus2 import SMBus
     i2cbus = SMBus(1) # Use i2c bus No.1 (for Pi Rev 2+)
 import time
+import sqlite3
+sqlconnection = sqlite3.connect(':memory:')
+sqlcursor = sqlconnection.cursor()
+sqlcursor.execute('''CREATE TABLE statedb ( pinname text, pinstate int)''')
 
-
-print ('Hello world!')
 
 
 IODIRA = 0x00 # Pin direction register for GPIOA (LOW= output, HIGH=input)
@@ -55,11 +57,18 @@ def mcp23017_read():
         read = read >> 1
 
     print (outputstates)
+    sqlcursor.execute("INSERT INTO statedb VALUES ('kellerlicht',1)")
+    sqlconnection.commit()
+
+    t = ('kellerlicht',)
+    sqlcursor.execute('SELECT * FROM statedb WHERE pinname=?', t)
+    print(sqlcursor.fetchone())
 
 
-    mcp23017_init()
+mcp23017_init()
 
 mcp23017_write()
 time.sleep(.500)
 mcp23017_read()
+
 
