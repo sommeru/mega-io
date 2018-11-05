@@ -35,7 +35,8 @@ def statedb_init():
                 data = next(reader)
             else:
                 sqlcursor.execute(query, data)
-        sqlconnection.commit()
+    sqlconnection.commit()
+
 
 def mcp23017_init():
     if virtualmode == False:
@@ -49,21 +50,34 @@ def mcp23017_init():
         i2cbus.write_byte_data(DEVICE,0x0D,0xFF) # enable all pullups (GPPUB) on GPIOB
 
 
-def mcp23017_write():
+def mcp23017_write(pinnametowriteto, pinstatetowrite):
     if virtualmode == False:
-        DEVICE = 0x20
         i2cbus.write_byte_data(DEVICE,OLATA,0x01)
         time.sleep(.200)
         i2cbus.write_byte_data(DEVICE,OLATA,0x00)
+    else:
+        sqlcursor.execute("SELECT * FROM statedb WHERE pinname = ?",(pinnametowriteto,))
+        writechannel=sqlcursor.fetchone()
+        device = (writechannel[1])
+        if writechannel[2] == "a":
+            olat = 0x14 # GPIOA Register for configuring outputs
+        elif writechannel[2] == "b":
+            olat = 0x15 # GPIOB Register for configuring outputs
+
+        if pinstatetowrite == 0:
+            payload = 0
+        elif pinstatetowrite == 1:
+            if writechannel[3] == 0:
+                payload = 0
+            else:
+                payload = 1
+            for x in range (0,writechannel[3]):
+                payload = payload << 1
+            print("pretending write to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
+            time.sleep(.200)
+            print("pretending write to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(0))
 
 def mcp23017_read():
-    DEVICE = 0x24
-
-
-#    print (bin(read))
- #   for x in range(0, 8):
-  #      sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = 0x24 AND in_gpiobank='a' AND in_pinno=?", (1-(read & 1), x))
-   #     read = read >> 1
 
     i2caddrs= list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb"))
     gpiobanks = list(sqlcursor.execute("SELECT DISTINCT in_gpiobank FROM statedb"))
@@ -85,15 +99,11 @@ def mcp23017_read():
 
     sqlconnection.commit()
 
-    sqlcursor.execute("SELECT * FROM statedb WHERE in_i2caddr = 36")
-    print(list(sqlcursor))
-
 
 statedb_init()
 mcp23017_init()
 
-mcp23017_write()
 time.sleep(.500)
 mcp23017_read()
-
+mcp23017_write("1_Bed_SpotBig",1)
 
