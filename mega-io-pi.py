@@ -5,9 +5,11 @@ virtualmode = True
 if virtualmode == False:
     from smbus2 import SMBus
     i2cbus = SMBus(1) # Use i2c bus No.1 (for Pi Rev 2+)
-import time
+import time # for waiting in the code
 import sqlite3
 import csv
+import sys # for exiting the code if an error occurs
+import paho.mqtt.client as mqtt
 
 sqlconnection = sqlite3.connect(':memory:')
 sqlcursor = sqlconnection.cursor()
@@ -93,17 +95,56 @@ def mcp23017_read():
                             read = i2cbus.read_byte_data(i2caddr[0], 0x13) #Read register GPIOB (0x13)
                     else:
                         read= 254
-                    for x in range(0, 8):
-                        sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_gpiobank=? AND in_pinno=?", (1-(read & 1),i2caddr[0],gpiobank[0], x))
+                    for bytepos in range(0, 8):
+                        sqlcursor.execute("SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND  in_gpiobank = ? AND in_pinno = ?",(i2caddr[0], gpiobank[0], bytepos))
+                        try:
+                            oldpin= sqlcursor.fetchone()
+                            newpinvalue = 1 - (read & 1)
+                            if oldpin[0] != (1-(read & 1)):
+                                #print("Old pin value of {0} is {1}, new is {2}. Updating statedb...".format(oldpin[1], oldpin[0], newpinvalue))
+                                sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_gpiobank=? AND in_pinno=?", (newpinvalue,i2caddr[0],gpiobank[0], bytepos))
+                                processchangedpin(oldpin[1],newpinvalue)
+
+                        except TypeError:
+                            pass
                         read = read >> 1
 
     sqlconnection.commit()
 
+def processchangedpin (pinname, pinvalue):
+    print ("new value:", pinname, ":", pinvalue)
+
+def mqtt_connect():
+    try:
+        with open ('mqtt_credentials.csv', 'r') as f:
+            reader = csv.reader(f)
+            data = next(reader) # Skip header line
+            data = next(reader)
+            mqtt_credentials_server = data[0]
+            mqtt_credentials_user = data[1]
+            mqtt_credentials_password = data[2]
+            mqtt_credentials_port = int(data[3])
+            mqtt_credentials_sslport = int(data [4])
+            mqtt_credentials_websocketport = int(data[5])
+        print("successfully imported MQTT credentials...")
+
+    except:
+        print("error opening mqtt_credentials.csv. Aborting...")
+        sys.exit()
+
 
 statedb_init()
 mcp23017_init()
+mqtt_connect()
 
-time.sleep(.500)
+#mcp23017_write("1_Bed_SpotBig",1)
+
+#while True:
 mcp23017_read()
-mcp23017_write("1_Bed_SpotBig",1)
+#time.sleep(1.000)
+#broker_address="192.168.1.184" 
+#broker_address="iot.eclipse.org" #use external broker
+#client = mqtt.Client("P1") #create new instance
+#client.connect(broker_address) #connect to broker
+#client.publish("house/main-light","OFF")#publish
 
