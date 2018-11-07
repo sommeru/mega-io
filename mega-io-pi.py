@@ -95,14 +95,6 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
     else:
         print("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
 
-    time.sleep(.200)
-
-    if virtualmode == False:
-        i2cbus.write_byte_data(device, olat, 0x00)
-        print("writing to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
-    else:
-        print("pretending write to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(0))
-
 
 def mcp23017_read():
     i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb"))
@@ -180,11 +172,12 @@ mcp23017_init()
 mqtt_connect()
 
 mcp23017_read()
+
 mcp23017_write("1_ShopF_Spot", 1)
+time.sleep(.2)
+mcp23017_write("1_ShopF_Spot", 0)
 
 # the main loop
-
-# while True
-time.sleep(.5)
-mcp23017_read()
-#    time.sleep(1.000)
+while True:
+    mcp23017_read()
+    time.sleep(1.000)
