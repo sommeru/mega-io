@@ -1,6 +1,6 @@
 #!./bin/python
 
-virtualmode = True
+virtualmode = False
 
 if virtualmode == False:
     from smbus2 import SMBus
@@ -95,13 +95,13 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
     else:
         print("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
 
-        time.sleep(.200)
+    time.sleep(.200)
 
-        if virtualmode == False:
-            i2cbus.write_byte_data(device, olat, 0x00)
-            print("writing to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
-        else:
-            print("pretending write to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(0))
+    if virtualmode == False:
+        i2cbus.write_byte_data(device, olat, 0x00)
+        print("writing to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
+    else:
+        print("pretending write to device adress", hex(device), "with olat", hex(olat), "and payload:", bin(0))
 
 
 def mcp23017_read():
@@ -179,10 +179,12 @@ statedb_init()
 mcp23017_init()
 mqtt_connect()
 
-mcp23017_write("1_Bed_SpotBig", 1)
+mcp23017_read()
+mcp23017_write("1_ShopF_Spot", 1)
 
 # the main loop
 
 # while True
+time.sleep(.5)
 mcp23017_read()
 #    time.sleep(1.000)
