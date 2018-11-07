@@ -26,7 +26,7 @@ GPPUB = 0x0D  # LOW PULLUP disabled
 PinDict = {"7": 0x80, "6": 0x40, "5": 0x20, "4": 0x10, "3": 0x08, "2": 0x04, "1": 0x02, "0": 0x01, "all": 0xff,
            "off": 0x00}
 
-mqttclient = mqtt.Client(client_id="mega-io-pi", clean_session=True, userdata=None, transport="tcp")
+mqttclient = mqtt.Client("mega-io-pi")
 
 
 #class Register:
@@ -73,8 +73,11 @@ def mcp23017_init():
 
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
+    print("began write function")
     sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
     (device, gpiobank, pinno) = sqlcursor.fetchone()
+    print("Still alive?")
+    print("Device=",device)
     if gpiobank == "a":
         olat = 0x14  # GPIOA Register for configuring outputs
     elif gpiobank == "b":
@@ -162,10 +165,36 @@ def mqtt_connect():
         sys.exit()
 
     mqttclient.username_pw_set(mqtt_credentials_user, password=mqtt_credentials_password)
-    mqttclient.connect_async(mqtt_credentials_server, port=mqtt_credentials_port, keepalive=60, bind_address="")
-    mqttclient.loop_start()
-    # time.sleep(10)
+    mqttclient.on_message=mqtt_message_recieved
+    mqttclient.on_subscribe=mqttsubscribed
+    mqttclient.connect(mqtt_credentials_server, port=mqtt_credentials_port, keepalive=60, bind_address="")
 
+    mqttclient.loop_start()
+    time.sleep(2)
+    mqttclient.subscribe("kirchenfelder75/mega-io/command/#")
+    #mqttclient.publish("kirchenfelder75/mega-io/command","hello from mega-io-pi")
+
+def mqtt_message_recieved(client, userdata, message):
+    mqtttopic=str(message.payload.decode("utf-8"))
+    print("message received " ,mqtttopic)
+    print("message topic=",message.topic)
+    print("message qos=",message.qos)
+    print("message retain flag=",message.retain)
+    channel = message.topic.split("command/")[1]
+    print ("-", channel, "-")
+    sayhello()
+    mcp23017_write("1_ShopF_Spot", 1)
+    time.sleep(.2)
+    mcp23017_write("1_ShopF_Spot", 0)
+
+def sayhello():
+    print("Hello to everyone")
+
+def mqttsubscribed(client, userdata, mid, granted_qos):
+    print(client)
+    print(userdata)
+    print(mid)
+    print(granted_qos)
 
 statedb_init()
 mcp23017_init()
@@ -173,9 +202,6 @@ mqtt_connect()
 
 mcp23017_read()
 
-mcp23017_write("1_ShopF_Spot", 1)
-time.sleep(.2)
-mcp23017_write("1_ShopF_Spot", 0)
 
 # the main loop
 while True:
