@@ -1,6 +1,6 @@
 #!./bin/python
 
-virtualmode = False
+virtualmode = True
 
 if virtualmode == False:
     from smbus2 import SMBus
@@ -12,7 +12,7 @@ import csv
 import sys  # for exiting the code if an error occurs
 import paho.mqtt.client as mqtt
 
-sqlconnection = sqlite3.connect(':memory:')
+sqlconnection = sqlite3.connect(':memory:', check_same_thread=False)
 sqlcursor = sqlconnection.cursor()
 
 IODIRA = 0x00  # Pin direction register for GPIOA (LOW= output, HIGH=input)
@@ -73,11 +73,13 @@ def mcp23017_init():
 
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
-    print("began write function")
-    sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
-    (device, gpiobank, pinno) = sqlcursor.fetchone()
-    print("Still alive?")
-    print("Device=",device)
+    try:
+        sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
+        (device, gpiobank, pinno) = sqlcursor.fetchone()
+    except Exception as e:
+        print("sqlquery failed...")
+        print(e)
+        return
     if gpiobank == "a":
         olat = 0x14  # GPIOA Register for configuring outputs
     elif gpiobank == "b":
@@ -172,35 +174,23 @@ def mqtt_connect():
     mqttclient.loop_start()
     time.sleep(2)
     mqttclient.subscribe("kirchenfelder75/mega-io/command/#")
-    #mqttclient.publish("kirchenfelder75/mega-io/command","hello from mega-io-pi")
+    mqttclient.publish("kirchenfelder75/mega-io/debug","hello from mega-io-pi")
 
 def mqtt_message_recieved(client, userdata, message):
     mqtttopic=str(message.payload.decode("utf-8"))
-    print("message received " ,mqtttopic)
-    print("message topic=",message.topic)
-    print("message qos=",message.qos)
-    print("message retain flag=",message.retain)
+    print("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
     channel = message.topic.split("command/")[1]
-    print ("-", channel, "-")
-    sayhello()
-    mcp23017_write("1_ShopF_Spot", 1)
+    mcp23017_write(channel, 1)
     time.sleep(.2)
-    mcp23017_write("1_ShopF_Spot", 0)
+    mcp23017_write(channel, 0)
 
-def sayhello():
-    print("Hello to everyone")
 
 def mqttsubscribed(client, userdata, mid, granted_qos):
-    print(client)
-    print(userdata)
-    print(mid)
-    print(granted_qos)
+    print ("successfully subscribed to MQTT topic with qos levels:", granted_qos)
 
 statedb_init()
 mcp23017_init()
 mqtt_connect()
-
-mcp23017_read()
 
 
 # the main loop
