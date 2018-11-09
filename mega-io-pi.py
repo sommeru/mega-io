@@ -4,30 +4,22 @@ virtualmode = True
 
 if virtualmode == False:
     from smbus2 import SMBus
-
     i2cbus = SMBus(1)  # Use i2c bus No.1 (for Pi Rev 2+)
+
 import time  # for waiting in the code
 import sqlite3
 import csv
 import sys  # for exiting the code if an error occurs
 import paho.mqtt.client as mqtt
+import threading
 
 sqlconnection = sqlite3.connect(':memory:', check_same_thread=False)
 sqlcursor = sqlconnection.cursor()
 
-IODIRA = 0x00  # Pin direction register for GPIOA (LOW= output, HIGH=input)
-IODIRB = 0x01  # Pin direction register for GPIOB
-OLATA = 0x14  # GPIOA Register for configuring outputs
-OLATB = 0x15  # GPIOB Register for configuring outputs
-GPIOA = 0x12  # Register for inputs
-GPIOB = 0x13
-GPPUA = 0x0C  # HIGH = PULLUP enabled
-GPPUB = 0x0D  # LOW PULLUP disabled
-PinDict = {"7": 0x80, "6": 0x40, "5": 0x20, "4": 0x10, "3": 0x08, "2": 0x04, "1": 0x02, "0": 0x01, "all": 0xff,
-           "off": 0x00}
 
 mqttclient = mqtt.Client("mega-io-pi")
 
+todolist_time = dict()
 
 #class Register:
 #    def __init__(self, address):
@@ -36,9 +28,18 @@ mqttclient = mqtt.Client("mega-io-pi")
 
 
 last_register_value = dict()
-last_register_value[32] = dict()
-last_register_value[32][0x14] = 0
-last_register_value[32][0x15] = 0
+last_register_value[0x20] = dict()
+last_register_value[0x20][0x14] = 0
+last_register_value[0x20][0x15] = 0
+last_register_value[0x21] = dict()
+last_register_value[0x21][0x14] = 0
+last_register_value[0x21][0x15] = 0
+last_register_value[0x22] = dict()
+last_register_value[0x22][0x14] = 0
+last_register_value[0x22][0x15] = 0
+last_register_value[0x23] = dict()
+last_register_value[0x23][0x14] = 0
+last_register_value[0x23][0x15] = 0
 
 
 
@@ -73,18 +74,22 @@ def mcp23017_init():
 
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
+    print(pinnametowriteto)
     try:
         sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
         (device, gpiobank, pinno) = sqlcursor.fetchone()
+        print(pinno)
     except Exception as e:
-        print("sqlquery failed...")
+        print("sqlquery failed in module write...")
         print(e)
         return
     if gpiobank == "a":
         olat = 0x14  # GPIOA Register for configuring outputs
     elif gpiobank == "b":
         olat = 0x15  # GPIOB Register for configuring outputs
-
+    else:
+        print ("no such OLAT register =", olat)
+        return
     bit = 1 << pinno
     if pinstatetowrite == 1:
         last_register_value[device][olat] |= bit
@@ -117,9 +122,7 @@ def mcp23017_read():
                     else:
                         read = 254
                     for bytepos in range(0, 8):
-                        sqlcursor.execute(
-                            "SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND  in_gpiobank = ? AND in_pinno = ?",
-                            (i2caddr[0], gpiobank[0], bytepos))
+                        sqlcursor.execute( "SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND  in_gpiobank = ? AND in_pinno = ?", (i2caddr[0], gpiobank[0], bytepos))
                         try:
                             oldpin = sqlcursor.fetchone()
                             newpinvalue = 1 - (read & 1)
@@ -147,6 +150,19 @@ def processchangedpin(pinname, pinvalue):
 
     mqttclient.publish(mqtttopic, mqttmessage)
 
+def mqttconnected(client, userdata, flags, rc):
+    if rc==0:
+        print("successfully connected to MQTT broker. Returned code =",rc)
+    else:
+        print("Bad connection to MQTT broker. Returned code =",rc)
+        mqtterrorcode = {
+            1: "Connection refused – incorrect protocol version",
+            2: "Connection refused – invalid client identifier",
+            3: "Connection refused – server unavailable",
+            4: "Connection refused – bad username or password",
+            5: "Connection refused – not authorised"
+        }
+        print (mqtterrorcode.get(rc, "Error code unknown..."))
 
 def mqtt_connect():
     try:
@@ -169,31 +185,57 @@ def mqtt_connect():
     mqttclient.username_pw_set(mqtt_credentials_user, password=mqtt_credentials_password)
     mqttclient.on_message=mqtt_message_recieved
     mqttclient.on_subscribe=mqttsubscribed
+    mqttclient.on_connect=mqttconnected
     mqttclient.connect(mqtt_credentials_server, port=mqtt_credentials_port, keepalive=60, bind_address="")
 
     mqttclient.loop_start()
-    time.sleep(2)
     mqttclient.subscribe("kirchenfelder75/mega-io/command/#")
     mqttclient.publish("kirchenfelder75/mega-io/debug","hello from mega-io-pi")
+
 
 def mqtt_message_recieved(client, userdata, message):
     mqtttopic=str(message.payload.decode("utf-8"))
     print("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
     channel = message.topic.split("command/")[1]
     mcp23017_write(channel, 1)
-    time.sleep(.2)
-    mcp23017_write(channel, 0)
+    try:
+        sqlcursor.execute("SELECT latchingtime FROM statedb WHERE pinname = ?", (channel,))
+    except Exception as e:
+        print("sqlquery failed in module mqttmesg recieved...")
+        print(e)
+        return
+    latchingtime = sqlcursor.fetchone()[0]
+    todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
 
 
 def mqttsubscribed(client, userdata, mid, granted_qos):
     print ("successfully subscribed to MQTT topic with qos levels:", granted_qos)
 
+
+def checktodolist_time():
+    poplist = set()
+    for todolistitem in todolist_time:
+        print(todolistitem)
+        if (int(round(time.time() * 1000)) - (todolist_time[todolistitem][0]) > (todolist_time[todolistitem][1]) ):
+
+            try:
+                sqlcursor.execute("SELECT latchingtime FROM statedb WHERE pinname = ?", (todolistitem,))
+            except Exception as e:
+                print("sqlquery failed in module checktodolist...")
+                print(e)
+                return
+            mcp23017_write(todolistitem, todolist_time[todolistitem][2])
+            poplist.add(todolistitem)
+    for popitem in poplist:
+        todolist_time.pop(popitem)
+
 statedb_init()
 mcp23017_init()
 mqtt_connect()
 
-
 # the main loop
 while True:
+    checktodolist_time()
     mcp23017_read()
-    time.sleep(1.000)
+    time.sleep(1)
+

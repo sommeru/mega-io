@@ -27,7 +27,6 @@ pinname text,out_i2caddr int,out_gpiobank text,out_pinno int,in_i2caddr int,in_g
 1_Outdoor_LightSide,33,b,2,37,b,2,200,24
 1_Outdoor_SocketPatio,33,b,3,37,b,3,200,25
 1_Garage_Light,33,b,4,37,b,4,200,26
-,,,,,,,,
 1_Bed_ShutterUp,34,a,0,0,0,0,200,28
 1_Bed_ShutterDown,34,a,1,0,0,0,200,29
 1_BathBig_ShutterUp,34,a,2,0,0,0,200,30
@@ -46,6 +45,5 @@ pinname text,out_i2caddr int,out_gpiobank text,out_pinno int,in_i2caddr int,in_g
 2_Living_ShutterTvDown,35,b,1,0,0,0,200,43
 2_Kitchen_ShutterUp,35,b,2,0,0,0,200,44
 2_Kitchen_ShutterDown,35,b,3,0,0,0,200,45
-,,,,,,,,
 1_EntranceF_DooropenerEntrance,35,a,0,0,0,0,3000,47
 1_Misc_DooropenerDriveway,35,a,1,0,0,0,250,48
