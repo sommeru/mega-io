@@ -12,6 +12,11 @@ import csv
 import sys  # for exiting the code if an error occurs
 import paho.mqtt.client as mqtt
 import Adafruit_ADS1x15
+import threading
+
+
+lock = threading.Lock()
+
 
 sqlconnection = sqlite3.connect(':memory:', check_same_thread=False)
 sqlcursor = sqlconnection.cursor()
@@ -68,25 +73,34 @@ def mcp23017_init():
     mcps_input = [0x24, 0x25]
     if virtualmode == False:
         for device in mcps_output:
-            i2cbus.write_byte_data(device, 0x00, 0x00)  # in register IODIRA set all pins as output (LOW)
-            i2cbus.write_byte_data(device, 0x01, 0x00)  # in register IODIRB set all pins as output (LOW)
+            try:
+                i2cbus.write_byte_data(device, 0x00, 0x00)  # in register IODIRA set all pins as output (LOW)
+                i2cbus.write_byte_data(device, 0x01, 0x00)  # in register IODIRB set all pins as output (LOW)
+            except: 
+                print ("---------------> bus initialization failed at output MCP, device :",hex(device))
         for device in mcps_input:
-            i2cbus.write_byte_data(device, 0x00, 0xFF)  # in register IODIRA set all pins as inputs (HIGH)
-            i2cbus.write_byte_data(device, 0x01, 0xFF)  # in register IODIRB set all pins as inputs (HIGH)
-            i2cbus.write_byte_data(device, 0x0C, 0xFF)  # enable all pullups (GPPUA) on GPIOA
-            i2cbus.write_byte_data(device, 0x0D, 0xFF)  # enable all pullups (GPPUB) on GPIOB
+            try:
+                i2cbus.write_byte_data(device, 0x00, 0xFF)  # in register IODIRA set all pins as inputs (HIGH)
+                i2cbus.write_byte_data(device, 0x01, 0xFF)  # in register IODIRB set all pins as inputs (HIGH)
+                i2cbus.write_byte_data(device, 0x0C, 0xFF)  # enable all pullups (GPPUA) on GPIOA
+                i2cbus.write_byte_data(device, 0x0D, 0xFF)  # enable all pullups (GPPUB) on GPIOB
+            except:
+                print ("---------------> bus initialization failed at input MCP, device :",hex(device))
+
 
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
-    print(int(round(time.time() * 1000)),pinnametowriteto)
     try:
-        sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
-        (device, gpiobank, pinno) = sqlcursor.fetchone()
-        print(pinno)
-    except Exception as e:
-        print("sqlquery failed in module write...")
-        print(e)
-        return
+        lock.acquire(True)
+        try:
+            sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
+            (device, gpiobank, pinno) = sqlcursor.fetchone()
+        except Exception as e:
+            print("sqlquery failed in module write...")
+            print(e)
+            return
+    finally:
+        lock.release()
     if gpiobank == "a":
         olat = 0x14  # GPIOA Register for configuring outputs
     elif gpiobank == "b":
@@ -111,8 +125,12 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
 
 
 def mcp23017_read( ):
-    i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb"))
-    gpiobanks = list(sqlcursor.execute("SELECT DISTINCT in_gpiobank FROM statedb"))
+    try:
+        lock.acquire(True)
+        i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb"))
+        gpiobanks = list(sqlcursor.execute("SELECT DISTINCT in_gpiobank FROM statedb"))
+    finally:
+        lock.release()
 
     for i2caddr in i2caddrs:
         if ((int(i2caddr[0]) > 0) & (int(i2caddr[0]) < 40)):  # Then it's presumably a MCP
@@ -136,19 +154,23 @@ def mcp23017_read( ):
                     else:
                         read = 254
                     for bytepos in range(0, 8):
-                        sqlcursor.execute( "SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND  in_gpiobank = ? AND in_pinno = ?", (i2caddr[0], gpiobank[0], bytepos))
                         try:
+                            lock.acquire(True)
+                            sqlcursor.execute( "SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND  in_gpiobank = ? AND in_pinno = ?", (i2caddr[0], gpiobank[0], bytepos))
+                        finally:
+                            lock.release()
+                        try:
+                            lock.acquire(True)
                             oldpin = sqlcursor.fetchone()
                             newpinvalue = 1 - (read & 1)
                             if oldpin[0] != (1 - (read & 1)):
                                 # print("Old pin value of {0} is {1}, new is {2}. Updating statedb...".format(oldpin[1], oldpin[0], newpinvalue))
-                                sqlcursor.execute(
-                                    "UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_gpiobank=? AND in_pinno=?",
-                                    (newpinvalue, i2caddr[0], gpiobank[0], bytepos))
+                                sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_gpiobank=? AND in_pinno=?", (newpinvalue, i2caddr[0], gpiobank[0], bytepos))
                                 processchangedpin(oldpin[1], newpinvalue)
 
                         except TypeError:
                             pass
+                        lock.release()
                         read = read >> 1
 
     sqlconnection.commit()
@@ -213,15 +235,24 @@ def mqtt_message_recieved(client, userdata, message):
     mqtttopic=str(message.payload.decode("utf-8"))
     print("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
     channel = message.topic.split("command/")[1]
-    mcp23017_write(channel, 1)
-    try:
-        sqlcursor.execute("SELECT latchingtime FROM statedb WHERE pinname = ?", (channel,))
-    except Exception as e:
-        print("sqlquery failed in module mqttmesg recieved...")
-        print(e)
+
+    # check if we want to run analog calibration for channel
+    if (mqtttopic == "calibration"):
+        analogin_calibration(channel)
         return
-    latchingtime = sqlcursor.fetchone()[0]
-    todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
+    else:
+        mcp23017_write(channel, 1)
+        try:
+            lock.acquire(True)
+            sqlcursor.execute("SELECT latchingtime FROM statedb WHERE pinname = ?", (channel,))
+            latchingtime = sqlcursor.fetchone()[0]
+        except Exception as e:
+            print("sqlquery failed in module mqttmesg recieved...")
+            print(e)
+            latchingtime = 200 #to avoid blocking of switches
+        finally:
+            lock.release()
+        todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
 
 
 def mqttsubscribed(client, userdata, mid, granted_qos):
@@ -234,11 +265,14 @@ def checktodolist_time():
         if (int(round(time.time() * 1000)) - (todolist_time[todolistitem][0]) > (todolist_time[todolistitem][1]) ):
 
             try:
+                lock.acquire(True)
                 sqlcursor.execute("SELECT latchingtime FROM statedb WHERE pinname = ?", (todolistitem,))
             except Exception as e:
                 print("sqlquery failed in module checktodolist...")
                 print(e)
                 return
+            finally:
+                lock.release()
             mcp23017_write(todolistitem, todolist_time[todolistitem][2])
             poplist.add(todolistitem)
     for popitem in poplist:
@@ -246,14 +280,22 @@ def checktodolist_time():
 
 def ads1115_read():
     try:
-        i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb WHERE in_i2caddr >= 72")) # >=72 usually means an ADS1XXX
+        try:
+            lock.acquire(True)
+            i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb WHERE in_i2caddr >= 72")) # >=72 usually means an ADS1XXX
+        finally:
+            lock.release()
     except Exception as e:
         print("sqlquery failed in module adsread_i2caddrs...")
         print(e)
         return
     for i2caddr in i2caddrs:
         try:
-            pins = list(sqlcursor.execute("SELECT DISTINCT in_pinno FROM statedb WHERE in_i2caddr = ?",(i2caddr[0],)))
+            try:
+                lock.acquire(True)
+                pins = list(sqlcursor.execute("SELECT DISTINCT in_pinno FROM statedb WHERE in_i2caddr = ?",(i2caddr[0],)))
+            finally:
+                lock.release()
         except Exception as e:
             print("sqlquery failed in module adsread_pins...")
             print(e)
@@ -263,19 +305,50 @@ def ads1115_read():
                 read = ADS[i2caddr[0]].read_adc(pin[0], gain=ADS["gain"])
             else:
                 read = 255
-            sqlcursor.execute("SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND in_pinno = ?",(i2caddr[0],pin[0]))
-            oldvalue = sqlcursor.fetchone()
+            try:
+                lock.acquire(True)
+                sqlcursor.execute("SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND in_pinno = ?",(i2caddr[0],pin[0]))
+                oldvalue = sqlcursor.fetchone()
+            finally:
+                lock.release()
             if (abs(oldvalue[0]-read)>50):
-                sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_pinno=?",(read, i2caddr[0], pin[0]))
+                try:
+                    lock.acquire(True)
+                    sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_pinno=?",(read, i2caddr[0], pin[0]))
+                    sqlconnection.commit()
+                finally:
+                    lock.release()
                 processchangedpin(oldvalue[1], read)
 
 def analogin_calibration(pinname):
+    oldcsvcontent = list()
+    with open("calibration.csv", newline='') as oldcsvfile:
+        calibreader = csv.reader(oldcsvfile)
+        try:
+            for row in calibreader:
+                if (row[0] != pinname):
+                    oldcsvcontent.append(row)
+        except csv.Error as e:
+            sys.exit('file {}, line {}: {}'.format(filename, reader.line_num, e))
+    print (oldcsvcontent)
+
+
+    with open('calibration.csv', 'w', newline='') as csvfile:
+        calibwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        calibwriter.writerows(oldcsvcontent)
+
     print("starting calibration of channel:",pinname)
     maximum = -100000
     minimum = 100000
-    sqlcursor.execute("SELECT in_i2caddr, in_pinno FROM statedb WHERE pinname = ?",(pinname,))
-    targetchannel = sqlcursor.fetchone()
+    mean = list()
+    try:
+        lock.acquire(True)
+        sqlcursor.execute("SELECT in_i2caddr, in_pinno FROM statedb WHERE pinname = ?",(pinname,))
+        targetchannel = sqlcursor.fetchone()
+    finally:
+        lock.release()
     mcp23017_write(pinname,1)
+    time.sleep(.5)
     starttime = int(round(time.time() * 1000))
     while int(round(time.time() * 1000)) - starttime < 30000:
         read = ADS[targetchannel[0]].read_adc(targetchannel[1], gain=ADS["gain"])
@@ -285,17 +358,33 @@ def analogin_calibration(pinname):
             minimum = read
 
     mcp23017_write(pinname,0)
+    time.sleep(1)
     print("Minimum for channel", pinname, "was", minimum)
     print("Maximum for channel", pinname, "was", maximum)
+
+    mcp23017_write(pinname,1)
+    time.sleep(.2)
+    mcp23017_write(pinname,0)
+    print("Detecting zero value")
+    time.sleep(2)
+    starttime = int(round(time.time() * 1000))
+    while int(round(time.time() * 1000)) - starttime < 10000:
+        mean.append(ADS[targetchannel[0]].read_adc(targetchannel[1], gain=ADS["gain"]))
+        time.sleep(.01)
+
+    print ("Mean zero value :", sum(mean)/len(mean))
+    print ("Min zero value :", min(mean))
+    print ("Max zero value :", max(mean))
+    with open('calibration.csv', 'a', newline='') as csvfile:
+        calibwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
+        calibwriter.writerow([pinname, min(mean), sum(mean)/len(mean), max(mean), minimum, maximum])
 
 
 statedb_init()
 mcp23017_init()
+
+
 mqtt_connect()
-
-
-analogin_calibration("2_Living_SpotWintergarden")
-
 # the main loop
 while True:
     checktodolist_time()
