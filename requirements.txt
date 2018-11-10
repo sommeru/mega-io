@@ -1,2 +1,2 @@
 paho-mqtt
-smbus2
+smbus2adafruit-ads1x15

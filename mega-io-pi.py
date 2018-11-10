@@ -1,6 +1,6 @@
 #!./bin/python
 
-virtualmode = True
+virtualmode = False
 
 if virtualmode == False:
     from smbus2 import SMBus
@@ -11,13 +11,16 @@ import sqlite3
 import csv
 import sys  # for exiting the code if an error occurs
 import paho.mqtt.client as mqtt
-import threading
+import Adafruit_ADS1x15
 
 sqlconnection = sqlite3.connect(':memory:', check_same_thread=False)
 sqlcursor = sqlconnection.cursor()
 
 
 mqttclient = mqtt.Client("mega-io-pi")
+ADS = dict()
+ADS[0x49] = Adafruit_ADS1x15.ADS1115(address=0x49)
+ADS["gain"] = 1
 
 todolist_time = dict()
 
@@ -52,7 +55,8 @@ def statedb_init():
         query = 'insert into statedb values ({0})'
         query = query.format(','.join('?' * len(data)))
         for data in reader:
-            if data[0] == "":  # Skip empty lines
+            print(data)
+            if len(data) < 1:  # Skip empty lines
                 data = next(reader)
             else:
                 sqlcursor.execute(query, data)
@@ -74,7 +78,7 @@ def mcp23017_init():
 
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
-    print(pinnametowriteto)
+    print(int(round(time.time() * 1000)),pinnametowriteto)
     try:
         sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
         (device, gpiobank, pinno) = sqlcursor.fetchone()
@@ -106,7 +110,7 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
         print("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
 
 
-def mcp23017_read():
+def mcp23017_read( ):
     i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb"))
     gpiobanks = list(sqlcursor.execute("SELECT DISTINCT in_gpiobank FROM statedb"))
 
@@ -116,9 +120,19 @@ def mcp23017_read():
                 if len(gpiobank[0]) > 0:
                     if virtualmode == False:
                         if gpiobank[0] == "a":
-                            read = i2cbus.read_byte_data(i2caddr[0], 0x12)  # Read register GPIOA (0x12)
+                            try:
+                                read = i2cbus.read_byte_data(i2caddr[0], 0x12)  # Read register GPIOA (0x12)
+                            except Exception as e:
+                                print("Error in reading MCP")
+                                print(e)
+                                read=254
                         elif gpiobank[0] == "b":
-                            read = i2cbus.read_byte_data(i2caddr[0], 0x13)  # Read register GPIOB (0x13)
+                            try:
+                                read = i2cbus.read_byte_data(i2caddr[0], 0x13)  # Read register GPIOB (0x13)
+                            except:
+                                print("Error in reading MCP")
+                                read=254
+
                     else:
                         read = 254
                     for bytepos in range(0, 8):
@@ -147,6 +161,8 @@ def processchangedpin(pinname, pinvalue):
         mqttmessage = "OFF"
     elif (pinvalue == 1):
         mqttmessage = "ON"
+    else:
+        mqttmessage = str(pinvalue)
 
     mqttclient.publish(mqtttopic, mqttmessage)
 
@@ -215,7 +231,6 @@ def mqttsubscribed(client, userdata, mid, granted_qos):
 def checktodolist_time():
     poplist = set()
     for todolistitem in todolist_time:
-        print(todolistitem)
         if (int(round(time.time() * 1000)) - (todolist_time[todolistitem][0]) > (todolist_time[todolistitem][1]) ):
 
             try:
@@ -229,13 +244,63 @@ def checktodolist_time():
     for popitem in poplist:
         todolist_time.pop(popitem)
 
+def ads1115_read():
+    try:
+        i2caddrs = list(sqlcursor.execute("SELECT DISTINCT in_i2caddr FROM statedb WHERE in_i2caddr >= 72")) # >=72 usually means an ADS1XXX
+    except Exception as e:
+        print("sqlquery failed in module adsread_i2caddrs...")
+        print(e)
+        return
+    for i2caddr in i2caddrs:
+        try:
+            pins = list(sqlcursor.execute("SELECT DISTINCT in_pinno FROM statedb WHERE in_i2caddr = ?",(i2caddr[0],)))
+        except Exception as e:
+            print("sqlquery failed in module adsread_pins...")
+            print(e)
+            return
+        for pin in pins:
+            if virtualmode == False:
+                read = ADS[i2caddr[0]].read_adc(pin[0], gain=ADS["gain"])
+            else:
+                read = 255
+            sqlcursor.execute("SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND in_pinno = ?",(i2caddr[0],pin[0]))
+            oldvalue = sqlcursor.fetchone()
+            if (abs(oldvalue[0]-read)>50):
+                sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_pinno=?",(read, i2caddr[0], pin[0]))
+                processchangedpin(oldvalue[1], read)
+
+def analogin_calibration(pinname):
+    print("starting calibration of channel:",pinname)
+    maximum = -100000
+    minimum = 100000
+    sqlcursor.execute("SELECT in_i2caddr, in_pinno FROM statedb WHERE pinname = ?",(pinname,))
+    targetchannel = sqlcursor.fetchone()
+    mcp23017_write(pinname,1)
+    starttime = int(round(time.time() * 1000))
+    while int(round(time.time() * 1000)) - starttime < 30000:
+        read = ADS[targetchannel[0]].read_adc(targetchannel[1], gain=ADS["gain"])
+        if (read > maximum):
+            maximum = read
+        if (read < minimum):
+            minimum = read
+
+    mcp23017_write(pinname,0)
+    print("Minimum for channel", pinname, "was", minimum)
+    print("Maximum for channel", pinname, "was", maximum)
+
+
 statedb_init()
 mcp23017_init()
 mqtt_connect()
+
+
+analogin_calibration("2_Living_SpotWintergarden")
 
 # the main loop
 while True:
     checktodolist_time()
     mcp23017_read()
-    time.sleep(1)
+    ads1115_read()
+
+    time.sleep(.1)
 
