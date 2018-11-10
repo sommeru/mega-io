@@ -28,7 +28,7 @@ ADS[0x49] = Adafruit_ADS1x15.ADS1115(address=0x49)
 ADS["gain"] = 1
 
 todolist_time = dict()
-
+adscalibration = dict()
 #class Register:
 #    def __init__(self, address):
 #        self.address = address
@@ -311,14 +311,15 @@ def ads1115_read():
                 oldvalue = sqlcursor.fetchone()
             finally:
                 lock.release()
-            if (abs(oldvalue[0]-read)>50):
+            if (abs(oldvalue[0]-read)>150):
                 try:
                     lock.acquire(True)
                     sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_pinno=?",(read, i2caddr[0], pin[0]))
                     sqlconnection.commit()
                 finally:
                     lock.release()
-                processchangedpin(oldvalue[1], read)
+                convertedvalue = ads1115_convert(oldvalue[1],read)
+                processchangedpin(oldvalue[1], convertedvalue)
 
 def analogin_calibration(pinname):
     oldcsvcontent = list()
@@ -330,8 +331,6 @@ def analogin_calibration(pinname):
                     oldcsvcontent.append(row)
         except csv.Error as e:
             sys.exit('file {}, line {}: {}'.format(filename, reader.line_num, e))
-    print (oldcsvcontent)
-
 
     with open('calibration.csv', 'w', newline='') as csvfile:
         calibwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
@@ -348,7 +347,7 @@ def analogin_calibration(pinname):
     finally:
         lock.release()
     mcp23017_write(pinname,1)
-    time.sleep(.5)
+    time.sleep(2)
     starttime = int(round(time.time() * 1000))
     while int(round(time.time() * 1000)) - starttime < 30000:
         read = ADS[targetchannel[0]].read_adc(targetchannel[1], gain=ADS["gain"])
@@ -380,8 +379,36 @@ def analogin_calibration(pinname):
         calibwriter.writerow([pinname, min(mean), sum(mean)/len(mean), max(mean), minimum, maximum])
 
 
+def ads1115_init():
+    adscsvcontent = list()
+    with open("calibration.csv", newline='') as calibcsvfile:
+        calibreader = csv.reader(calibcsvfile)
+        header = next(calibreader, None)
+        try:
+            for row in calibreader:
+                zerocutoff = int(row[3]) + (int(row[4]) - int(row[3])) / 2
+                oneperc =     int(row[4]) + ((int(row[5]) - int(row[4])) / 20)
+                hundredperc = int(row[5]) - ((int(row[5]) - int(row[4])) / 20)
+                adscalibration[row[0]] = dict(zerocutoff=zerocutoff, oneperc=oneperc, hundredperc=hundredperc)
+        except csv.Error as e:
+            sys.exit('file {}, line {}: {}'.format(filename, reader.line_num, e))
+
+def ads1115_convert(pinname, rawvalue):
+    if (rawvalue < adscalibration[pinname]["zerocutoff"]):
+        returnvalue = 0
+    else:
+        returnvalue = int((rawvalue-adscalibration[pinname]["oneperc"]) / (adscalibration[pinname]["hundredperc"] - adscalibration[pinname]["oneperc"])*100 )
+        if returnvalue < 1:
+            returnvalue = 1
+        elif returnvalue > 100:
+            returnvalue = 100
+    return(returnvalue)
+
+
+
 statedb_init()
 mcp23017_init()
+ads1115_init()
 
 
 mqtt_connect()
@@ -391,5 +418,5 @@ while True:
     mcp23017_read()
     ads1115_read()
 
-    time.sleep(.1)
+    #time.sleep(.1)
 
