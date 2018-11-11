@@ -14,6 +14,7 @@ import paho.mqtt.client as mqtt
 import Adafruit_ADS1x15
 import threading
 
+ANALOGWOBBLEBANDWITH = 400
 
 lock = threading.Lock()
 
@@ -28,6 +29,7 @@ ADS[0x49] = Adafruit_ADS1x15.ADS1115(address=0x49)
 ADS["gain"] = 1
 
 todolist_time = dict()
+todolist_value = dict()
 adscalibration = dict()
 #class Register:
 #    def __init__(self, address):
@@ -240,7 +242,7 @@ def mqtt_message_recieved(client, userdata, message):
     if (mqtttopic == "calibration"):
         analogin_calibration(channel)
         return
-    else:
+    elif ((mqtttopic == "ON") or (mqtttopic == "OFF") or (mqtttopic == "0")):
         mcp23017_write(channel, 1)
         try:
             lock.acquire(True)
@@ -253,10 +255,40 @@ def mqtt_message_recieved(client, userdata, message):
         finally:
             lock.release()
         todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
-
+    else:
+        try:
+            setvalue = int(mqtttopic)
+        except:
+            print ("Don't know how to handle topic",mqtttopic,"giving up...")
+            return
+        if ((setvalue > 0) and (setvalue <= 100)):
+            mcp23017_write(channel, 1)
+            todolist_value[channel] = setvalue
+        else:
+            print ("Only numbers between 0 and 100 are supported.", setvalue, "seemes to be outside...") 
 
 def mqttsubscribed(client, userdata, mid, granted_qos):
     print ("successfully subscribed to MQTT topic with qos levels:", granted_qos)
+
+def checktolist_value():
+    poplist = set()
+    for todolistitem in todolist_value:
+        try:
+            lock.acquire(True)
+            sqlcursor.execute("SELECT pinstate FROM statedb WHERE pinname = ?", (todolistitem,))
+            actualvalue = int(sqlcursor.fetchone()[0])
+        except Exception as e:
+            print("sqlquery failed in module checktolistvalue...")
+            print(e)
+        finally:
+            lock.release()
+        actualvalue = ads1115_convert(todolistitem, actualvalue)
+        if (abs(actualvalue - todolist_value[todolistitem]) < 5):
+            mcp23017_write(todolistitem,0)
+            poplist.add(todolistitem)
+    for popitem in poplist:
+        todolist_value.pop(popitem)
+
 
 
 def checktodolist_time():
@@ -311,7 +343,7 @@ def ads1115_read():
                 oldvalue = sqlcursor.fetchone()
             finally:
                 lock.release()
-            if (abs(oldvalue[0]-read)>150):
+            if (abs(oldvalue[0]-read)>ANALOGWOBBLEBANDWITH):
                 try:
                     lock.acquire(True)
                     sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_pinno=?",(read, i2caddr[0], pin[0]))
@@ -415,6 +447,7 @@ mqtt_connect()
 # the main loop
 while True:
     checktodolist_time()
+    checktolist_value()
     mcp23017_read()
     ads1115_read()
 
