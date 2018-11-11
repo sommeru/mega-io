@@ -41,9 +41,12 @@ pinname text,out_i2caddr int,out_gpiobank text,out_pinno int,in_i2caddr int,in_g
 2_Living_ShutterWintergardenMDown,34,b,3,0,0,0,200,39
 2_Living_ShutterWintergardenRUp,34,b,4,0,0,0,200,40
 2_Living_ShutterWintergardenRDown,34,b,5,0,0,0,200,41
-2_Living_ShutterTvUp,35,b,0,0,0,0,200,42
-2_Living_ShutterTvDown,35,b,1,0,0,0,200,43
-2_Kitchen_ShutterUp,35,b,2,0,0,0,200,44
-2_Kitchen_ShutterDown,35,b,3,0,0,0,200,45
+2_Kitchen_ShutterUp,35,b,0,0,0,0,200,44
+2_Kitchen_ShutterDown,35,b,1,0,0,0,200,45
+2_Living_ShutterTvUp,35,b,2,0,0,0,200,42
+2_Living_ShutterTvDown,35,b,3,0,0,0,200,43
 1_EntranceF_DooropenerEntrance,35,a,0,0,0,0,3000,47
 1_Misc_DooropenerDriveway,35,a,1,0,0,0,250,48
+1_Misc_DooropenerDriveway,35,a,1,0,0,0,250,48
+1_Misc_DooropenerDriveway,35,a,1,0,0,0,250,48
+dummy,0,0,0,0,0,0,0,0

@@ -334,7 +334,10 @@ def ads1115_read():
             return
         for pin in pins:
             if virtualmode == False:
-                read = ADS[i2caddr[0]].read_adc(pin[0], gain=ADS["gain"])
+                try:
+                    read = ADS[i2caddr[0]].read_adc(pin[0], gain=ADS["gain"])
+                except:
+                    print ("Error reading ADS")
             else:
                 read = 255
             try:
