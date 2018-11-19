@@ -3,3 +3,5 @@ pinname,zeromin,zeromean,zeromax,dimmin,dimmax
 1_Bed_SpotSmall,2,9.747534516765286,40,4388,23478
 1_Bed_SpotBig,2,9.65748031496063,39,4388,23643
 2_Living_SpotMain,6,15.67258382642998,50,4388,23087
+2_Living_SpotTv,-1,9.9,38,4288,23362
+2_Living_SpotKitchen,3,9.798816568047338,35,5857,23567

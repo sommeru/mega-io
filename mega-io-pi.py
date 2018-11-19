@@ -25,6 +25,7 @@ sqlcursor = sqlconnection.cursor()
 
 mqttclient = mqtt.Client("mega-io-pi")
 ADS = dict()
+ADS[0x48] = Adafruit_ADS1x15.ADS1115(address=0x48)
 ADS[0x49] = Adafruit_ADS1x15.ADS1115(address=0x49)
 ADS["gain"] = 1
 
@@ -62,10 +63,10 @@ def statedb_init():
         query = 'insert into statedb values ({0})'
         query = query.format(','.join('?' * len(data)))
         for data in reader:
-            print(data)
             if len(data) < 1:  # Skip empty lines
                 data = next(reader)
             else:
+                print(data)
                 sqlcursor.execute(query, data)
     sqlconnection.commit()
 
@@ -96,13 +97,19 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
         lock.acquire(True)
         try:
             sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
-            (device, gpiobank, pinno) = sqlcursor.fetchone()
         except Exception as e:
             print("sqlquery failed in module write...")
             print(e)
             return
     finally:
         lock.release()
+
+    result = sqlcursor.fetchone()
+    if (result == None):
+        print ("pinname", pinnametowriteto, "not known...")
+        return
+    (device, gpiobank, pinno) = result
+
     if gpiobank == "a":
         olat = 0x14  # GPIOA Register for configuring outputs
     elif gpiobank == "b":
@@ -337,16 +344,19 @@ def ads1115_read():
                 try:
                     read = ADS[i2caddr[0]].read_adc(pin[0], gain=ADS["gain"])
                 except:
-                    print ("Error reading ADS")
+                    read = 0
+                    print ("Error reading ADS", i2caddr[0])
             else:
-                read = 255
+                read = 0
             try:
                 lock.acquire(True)
                 sqlcursor.execute("SELECT pinstate, pinname FROM statedb WHERE in_i2caddr = ? AND in_pinno = ?",(i2caddr[0],pin[0]))
                 oldvalue = sqlcursor.fetchone()
+            except:
+                oldvalue[0] = 0
             finally:
                 lock.release()
-            if (abs(oldvalue[0]-read)>ANALOGWOBBLEBANDWITH):
+            if (abs(int(oldvalue[0])-int(read))>ANALOGWOBBLEBANDWITH):
                 try:
                     lock.acquire(True)
                     sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_pinno=?",(read, i2caddr[0], pin[0]))
