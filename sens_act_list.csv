@@ -7,9 +7,9 @@ Work_SpotSmall,32,a,4,36,a,4,200,-1
 Work_SpotBig,32,a,5,36,a,5,200,-1
 Bed_SpotSmall,32,a,6,73,0,0,250,-1
 Bed_SpotBig,32,a,7,73,0,2,250,-1
-BathBig_SpotMirror,32,b,0,36,a,6,200,-1
-BathBig_SpotRear,32,b,1,36,a,7,200,-1
-Stairway_Spot,32,b,2,36,b,0,200,-1
+BathBig_SpotRear,32,b,0,36,a,6,200,-1
+BathBig_SpotMirror,32,b,1,36,b,0,200,-1
+Stairway_Spot,32,b,2,36,b,1,200,-1
 Stairway_Walllamp,32,b,3,37,a,0,200,-1
 Stairway_Pendant,32,b,4,37,a,1,200,-1
 Living_Walllamp,32,b,5,37,a,2,200,-1
@@ -23,7 +23,7 @@ Kitchen_LightCupboard,33,a,5,37,a,5,200,-1
 Kitchen_Pendant,33,a,6,37,a,6,200,-1
 Outdoor_LightPatio,33,a,7,37,b,0,200,-1
 Outdoor_LightFront,33,b,1,37,b,1,200,-1
-Outdoor_LightEntrance,33,b,0,36,b,1,200,-1
+Outdoor_LightEntrance,33,b,0,36,b,2,200,-1
 Outdoor_LightSide,33,b,2,37,b,2,200,-1
 Outdoor_SocketPatio,33,b,3,37,b,3,200,-1
 Garage_Light,33,b,4,37,b,5,200,-1
@@ -47,3 +47,4 @@ Kitchen_ShutterUp,35,b,2,0,0,0,200,-1
 Kitchen_ShutterDown,35,b,3,0,0,0,200,-1
 EntranceF_Dooropener,35,a,0,0,0,0,3000,-1
 Misc_Gateopener,35,a,1,0,0,0,250,-1
+Misc_Doorbell,35,a,7,38,a,0,200,1

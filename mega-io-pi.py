@@ -6,7 +6,7 @@ if virtualmode == False:
     from smbus2 import SMBus
     i2cbus = SMBus(1)  # Use i2c bus No.1 (for Pi Rev 2+)
 
-import time  # for waiting in the code
+import time
 import sqlite3
 import csv
 import sys  # for exiting the code if an error occurs
@@ -18,10 +18,8 @@ ANALOGWOBBLEBANDWITH = 400
 
 lock = threading.Lock()
 
-
 sqlconnection = sqlite3.connect(':memory:', check_same_thread=False)
 sqlcursor = sqlconnection.cursor()
-
 
 mqttclient = mqtt.Client("mega-io-pi")
 ADS = dict()
@@ -32,11 +30,6 @@ ADS["gain"] = 1
 todolist_time = dict()
 todolist_value = dict()
 adscalibration = dict()
-#class Register:
-#    def __init__(self, address):
-#        self.address = address
-#        self.value = 0
-
 
 last_register_value = dict()
 last_register_value[0x20] = dict()
@@ -51,7 +44,6 @@ last_register_value[0x22][0x15] = 0
 last_register_value[0x23] = dict()
 last_register_value[0x23][0x14] = 0
 last_register_value[0x23][0x15] = 0
-
 
 
 def statedb_init():
@@ -70,16 +62,15 @@ def statedb_init():
                 sqlcursor.execute(query, data)
     sqlconnection.commit()
 
-
 def mcp23017_init():
     mcps_output = [0x20, 0x21, 0x22, 0x23]
-    mcps_input = [0x24, 0x25]
+    mcps_input = [0x24, 0x25, 0x26]
     if virtualmode == False:
         for device in mcps_output:
             try:
                 i2cbus.write_byte_data(device, 0x00, 0x00)  # in register IODIRA set all pins as output (LOW)
                 i2cbus.write_byte_data(device, 0x01, 0x00)  # in register IODIRB set all pins as output (LOW)
-            except: 
+            except:
                 print ("---------------> bus initialization failed at output MCP, device :",hex(device))
         for device in mcps_input:
             try:
@@ -89,8 +80,6 @@ def mcp23017_init():
                 i2cbus.write_byte_data(device, 0x0D, 0xFF)  # enable all pullups (GPPUB) on GPIOB
             except:
                 print ("---------------> bus initialization failed at input MCP, device :",hex(device))
-
-
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
     try:
@@ -131,7 +120,6 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
 
     else:
         print("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
-
 
 def mcp23017_read( ):
     try:
@@ -183,7 +171,6 @@ def mcp23017_read( ):
                         read = read >> 1
 
     sqlconnection.commit()
-
 
 def processchangedpin(pinname, pinvalue):
     print("new value:", pinname, ":", pinvalue)
@@ -238,7 +225,6 @@ def mqtt_connect():
     mqttclient.loop_start()
     mqttclient.subscribe("kirchenfelder75/mega-io/command/#")
     mqttclient.publish("kirchenfelder75/mega-io/debug","hello from mega-io-pi")
-
 
 def mqtt_message_recieved(client, userdata, message):
     mqtttopic=str(message.payload.decode("utf-8"))
@@ -295,8 +281,6 @@ def checktolist_value():
             poplist.add(todolistitem)
     for popitem in poplist:
         todolist_value.pop(popitem)
-
-
 
 def checktodolist_time():
     poplist = set()
@@ -423,7 +407,6 @@ def analogin_calibration(pinname):
         calibwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
         calibwriter.writerow([pinname, min(mean), sum(mean)/len(mean), max(mean), minimum, maximum])
 
-
 def ads1115_init():
     adscsvcontent = list()
     with open("calibration.csv", newline='') as calibcsvfile:
@@ -454,15 +437,12 @@ def ads1115_convert(pinname, rawvalue):
 statedb_init()
 mcp23017_init()
 ads1115_init()
-
-
 mqtt_connect()
+
+
 # the main loop
 while True:
     checktodolist_time()
     checktolist_value()
     mcp23017_read()
     ads1115_read()
-
-    #time.sleep(.1)
-
