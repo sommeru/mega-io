@@ -46,7 +46,7 @@ last_register_value[0x23][0x14] = 0
 last_register_value[0x23][0x15] = 0
 
 
-def statedb_init():
+def statedb_init(): 
     with open('sens_act_list.csv', 'r') as f:
         reader = csv.reader(f)
         data = next(reader)
@@ -116,7 +116,7 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
 
     if virtualmode == False:
         i2cbus.write_byte_data(device, olat, payload)
-        print("writing to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
+        print("writing to device address", hex(device), "gpiobank", gpiobank, "and payload:", bin(payload))
 
     else:
         print("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
@@ -235,19 +235,46 @@ def mqtt_message_recieved(client, userdata, message):
     if (mqtttopic == "calibration"):
         analogin_calibration(channel)
         return
-    elif ((mqtttopic == "ON") or (mqtttopic == "OFF") or (mqtttopic == "0")):
-        mcp23017_write(channel, 1)
+    elif (mqtttopic == "ON"):
         try:
             lock.acquire(True)
-            sqlcursor.execute("SELECT latchingtime FROM statedb WHERE pinname = ?", (channel,))
-            latchingtime = sqlcursor.fetchone()[0]
+            sqlcursor.execute("SELECT latchingtime, pinstate FROM statedb WHERE pinname = ?", (channel,))
+            sqlresult = sqlcursor.fetchone()
         except Exception as e:
             print("sqlquery failed in module mqttmesg recieved...")
             print(e)
             latchingtime = 200 #to avoid blocking of switches
         finally:
             lock.release()
-        todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
+        latchingtime = sqlresult[0]
+        pinstate = int(sqlresult[1])
+
+        if ((pinstate == 0) or (pinstate == -1)):
+            mcp23017_write(channel, 1)
+            todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
+        else:
+            print("no turning ON as pinstate is already", pinstate)
+
+    elif ((mqtttopic == "OFF") or (mqtttopic == "0")):
+        try:
+            lock.acquire(True)
+            sqlcursor.execute("SELECT latchingtime, pinstate FROM statedb WHERE pinname = ?", (channel,))
+            sqlresult = sqlcursor.fetchone()
+        except Exception as e:
+            print("sqlquery failed in module mqttmesg recieved...")
+            print(e)
+            latchingtime = 200 #to avoid blocking of switches
+        finally:
+            lock.release()
+        latchingtime = sqlresult[0]
+        pinstate = int(sqlresult[1])
+
+        if ((pinstate > 0) or (pinstate == -1)):
+            mcp23017_write(channel, 1)
+            todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
+        else:
+            print("no turning OFF as pinstate is already", pinstate)
+
     else:
         try:
             setvalue = int(mqtttopic)
