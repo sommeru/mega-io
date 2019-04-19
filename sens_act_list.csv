@@ -41,10 +41,10 @@ Living_ShutterWintergardenMUp,34,b,2,0,0,0,200,-1
 Living_ShutterWintergardenMDown,34,b,3,0,0,0,200,-1
 Living_ShutterWintergardenRUp,34,b,4,0,0,0,200,-1
 Living_ShutterWintergardenRDown,34,b,5,0,0,0,200,-1
-Living_ShutterTvUp,35,b,0,0,0,0,200,-1
-Living_ShutterTvDown,35,b,1,0,0,0,200,-1
-Kitchen_ShutterUp,35,b,2,0,0,0,200,-1
-Kitchen_ShutterDown,35,b,3,0,0,0,200,-1
+Living_ShutterTvUp,35,b,2,0,0,0,200,-1
+Living_ShutterTvDown,35,b,3,0,0,0,200,-1
+Kitchen_ShutterUp,35,b,0,0,0,0,200,-1
+Kitchen_ShutterDown,35,b,1,0,0,0,200,-1
 EntranceF_Dooropener,35,a,0,0,0,0,3000,-1
 Misc_Gateopener,35,a,1,0,0,0,250,-1
 Misc_Doorbell,35,a,7,38,a,0,200,1
