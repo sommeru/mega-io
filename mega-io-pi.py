@@ -237,7 +237,7 @@ def mqtt_connect():
     mqttclient.on_connect=mqttconnected
     mqttclient.connect(mqtt_credentials_server, port=mqtt_credentials_port, keepalive=60, bind_address="")
 
-    mqttclient.loop_start()
+    #mqttclient.loop_start()
     mqttclient.subscribe("kirchenfelder75/mega-io/command/#")
     mqttclient.publish("kirchenfelder75/mega-io/debug","hello from mega-io-pi")
 
@@ -272,7 +272,6 @@ def mqtt_message_received(client, userdata, message):
                     pinstate = ads1115_convert(channel, pinstate)
 
                 if ((pinstate == 0) or (pinstate == -1)):
-                    print("turning ON as pinstate is", pinstate)
                     mcp23017_write(channel, 1)
                     todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
                 else:
@@ -281,12 +280,8 @@ def mqtt_message_received(client, userdata, message):
             elif ((mqtttopic == "OFF") or (mqtttopic == "0")):
                 try:
                     lock.acquire(True)
-                    print("running SELECT for pin name ", channel)
                     r = sqlcursor.execute("SELECT latchingtime, pinstate, in_i2caddr FROM statedb WHERE pinname = ?", (channel,))
-                    print("r is ", r)
-                    print("A")
                     sqlresult = sqlcursor.fetchone()
-                    print("B")
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
@@ -295,7 +290,6 @@ def mqtt_message_received(client, userdata, message):
                     latchingtime = 200 #to avoid blocking of switches
                 finally:
                     lock.release()
-                print("sql result is ", sqlresult)
                 latchingtime = sqlresult[0]
                 pinstate = int(sqlresult[1])
                 isanalogchannel = (int(sqlresult[2]) >= 72)
@@ -303,7 +297,6 @@ def mqtt_message_received(client, userdata, message):
                     pinstate = ads1115_convert(channel, pinstate)
 
                 if ((pinstate > 0) or (pinstate == -1)):
-                    print("turning OFF as pinstate is", pinstate)
                     mcp23017_write(channel, 1)
                     todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
                 else:
@@ -521,9 +514,10 @@ mcp23017_init()
 ads1115_init()
 mqtt_connect()
 
-
+starttime = time.time()
 # the main loop
 while True:
+    mqttclient.loop(0.001)
     checktodolist_time()
     checktolist_value()
     mcp23017_read()
