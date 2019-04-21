@@ -13,10 +13,12 @@ import sys  # for exiting the code if an error occurs
 import paho.mqtt.client as mqtt
 import Adafruit_ADS1x15
 import threading
+import traceback
 
 ANALOGWOBBLEBANDWITH = 400
 
 lock = threading.Lock()
+lock2 = threading.Lock()
 
 sqlconnection = sqlite3.connect(':memory:', check_same_thread=False)
 sqlcursor = sqlconnection.cursor()
@@ -86,10 +88,12 @@ def mcp23017_init():
                 print ("---------------> bus initialization failed at input MCP, device :",hex(device))
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
+    result = None
     try:
         lock.acquire(True)
         try:
             sqlcursor.execute("SELECT out_i2caddr, out_gpiobank, out_pinno FROM statedb WHERE pinname = ?", (pinnametowriteto,))
+            result = sqlcursor.fetchone()
         except KeyboardInterrupt:
             raise
         except Exception as e:
@@ -99,7 +103,6 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
     finally:
         lock.release()
 
-    result = sqlcursor.fetchone()
     if (result == None):
         print ("pinname", pinnametowriteto, "not known...")
         return
@@ -239,85 +242,93 @@ def mqtt_connect():
     mqttclient.publish("kirchenfelder75/mega-io/debug","hello from mega-io-pi")
 
 def mqtt_message_received(client, userdata, message):
-    try:
-        mqtttopic=str(message.payload.decode("utf-8"))
-        print("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
-        channel = message.topic.split("command/")[1]
+    with lock2:
+        try:
+            mqtttopic=str(message.payload.decode("utf-8"))
+            print("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
+            channel = message.topic.split("command/")[1]
 
-        # check if we want to run analog calibration for channel
-        if (mqtttopic == "calibration"):
-            analogin_calibration(channel)
-            return
-        elif (mqtttopic == "ON"):
-            try:
-                lock.acquire(True)
-                sqlcursor.execute("SELECT latchingtime, pinstate, in_i2caddr FROM statedb WHERE pinname = ?", (channel,))
-                sqlresult = sqlcursor.fetchone()
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                print("sqlquery failed in module mqttmesg recieved...")
-                print(e)
-                latchingtime = 200 #to avoid blocking of switches
-            finally:
-                lock.release()
-            latchingtime = sqlresult[0]
-            pinstate = int(sqlresult[1])
-            isanalogchannel = (int(sqlresult[2]) >= 72)
-            if (isanalogchannel):
-                pinstate = ads1115_convert(channel, pinstate)
-
-            if ((pinstate == 0) or (pinstate == -1)):
-                print("turning ON as pinstate is", pinstate)
-                mcp23017_write(channel, 1)
-                todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
-            else:
-                print("no turning ON as pinstate is already", pinstate)
-
-        elif ((mqtttopic == "OFF") or (mqtttopic == "0")):
-            try:
-                lock.acquire(True)
-                sqlcursor.execute("SELECT latchingtime, pinstate, in_i2caddr FROM statedb WHERE pinname = ?", (channel,))
-                sqlresult = sqlcursor.fetchone()
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                print("sqlquery failed in module mqttmesg recieved...")
-                print(e)
-                latchingtime = 200 #to avoid blocking of switches
-            finally:
-                lock.release()
-            latchingtime = sqlresult[0]
-            pinstate = int(sqlresult[1])
-            isanalogchannel = (int(sqlresult[2]) >= 72)
-            if (isanalogchannel):
-                pinstate = ads1115_convert(channel, pinstate)
-
-            if ((pinstate > 0) or (pinstate == -1)):
-                print("turning OFF as pinstate is", pinstate)
-                mcp23017_write(channel, 1)
-                todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
-            else:
-                print("no turning OFF as pinstate is already", pinstate)
-
-        else:
-            try:
-                setvalue = int(mqtttopic)
-            except KeyboardInterrupt:
-                raise
-            except:
-                print ("Don't know how to handle topic",mqtttopic,"giving up...")
+            # check if we want to run analog calibration for channel
+            if (mqtttopic == "calibration"):
+                analogin_calibration(channel)
                 return
-            if ((setvalue > 0) and (setvalue <= 100)):
-                mcp23017_write(channel, 1)
-                todolist_value[channel] = setvalue
+            elif (mqtttopic == "ON"):
+                try:
+                    lock.acquire(True)
+                    sqlcursor.execute("SELECT latchingtime, pinstate, in_i2caddr FROM statedb WHERE pinname = ?", (channel,))
+                    sqlresult = sqlcursor.fetchone()
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    print("sqlquery failed in module mqttmesg recieved...")
+                    print(e)
+                    latchingtime = 200 #to avoid blocking of switches
+                finally:
+                    lock.release()
+                latchingtime = sqlresult[0]
+                pinstate = int(sqlresult[1])
+                isanalogchannel = (int(sqlresult[2]) >= 72)
+                if (isanalogchannel):
+                    pinstate = ads1115_convert(channel, pinstate)
+
+                if ((pinstate == 0) or (pinstate == -1)):
+                    print("turning ON as pinstate is", pinstate)
+                    mcp23017_write(channel, 1)
+                    todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
+                else:
+                    print("no turning ON as pinstate is already", pinstate)
+
+            elif ((mqtttopic == "OFF") or (mqtttopic == "0")):
+                try:
+                    lock.acquire(True)
+                    print("running SELECT for pin name ", channel)
+                    r = sqlcursor.execute("SELECT latchingtime, pinstate, in_i2caddr FROM statedb WHERE pinname = ?", (channel,))
+                    print("r is ", r)
+                    print("A")
+                    sqlresult = sqlcursor.fetchone()
+                    print("B")
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    print("sqlquery failed in module mqttmesg recieved...")
+                    print(e)
+                    latchingtime = 200 #to avoid blocking of switches
+                finally:
+                    lock.release()
+                print("sql result is ", sqlresult)
+                latchingtime = sqlresult[0]
+                pinstate = int(sqlresult[1])
+                isanalogchannel = (int(sqlresult[2]) >= 72)
+                if (isanalogchannel):
+                    pinstate = ads1115_convert(channel, pinstate)
+
+                if ((pinstate > 0) or (pinstate == -1)):
+                    print("turning OFF as pinstate is", pinstate)
+                    mcp23017_write(channel, 1)
+                    todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
+                else:
+                    print("no turning OFF as pinstate is already", pinstate)
+
             else:
-                print ("Only numbers between 0 and 100 are supported.", setvalue, "seemes to be outside...") 
-    except KeyboardInterrupt:
-        raise
-    except Exception as e:
-        print("error in mqtt_message_received: %s" % str(e))
-        raise
+                try:
+                    setvalue = int(mqtttopic)
+                except KeyboardInterrupt:
+                    raise
+                except:
+                    print ("Don't know how to handle topic",mqtttopic,"giving up...")
+                    return
+                if ((setvalue > 0) and (setvalue <= 100)):
+                    mcp23017_write(channel, 1)
+                    todolist_value[channel] = setvalue
+                else:
+                    print ("Only numbers between 0 and 100 are supported.", setvalue, "seemes to be outside...") 
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            print("error in mqtt_message_received: %s" % str(e))
+            print("full traceback follows:")
+            print(traceback.format_exc())
+            raise
 
 def mqttsubscribed(client, userdata, mid, granted_qos):
     print ("successfully subscribed to MQTT topic with qos levels:", granted_qos)
