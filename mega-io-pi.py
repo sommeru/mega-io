@@ -14,6 +14,7 @@ import paho.mqtt.client as mqtt
 import Adafruit_ADS1x15
 import threading
 import traceback
+import datetime
 
 ANALOGWOBBLEBANDWITH = 400
 
@@ -60,7 +61,7 @@ def statedb_init():
             if len(data) < 1:  # Skip empty lines
                 data = next(reader)
             else:
-                print(data)
+                debuglog(data)
                 sqlcursor.execute(query, data)
     sqlconnection.commit()
 
@@ -75,7 +76,7 @@ def mcp23017_init():
             except KeyboardInterrupt:
                 raise
             except:
-                print ("---------------> bus initialization failed at output MCP, device :",hex(device))
+                debuglog ("---------------> bus initialization failed at output MCP, device :", hex(device))
         for device in mcps_input:
             try:
                 i2cbus.write_byte_data(device, 0x00, 0xFF)  # in register IODIRA set all pins as inputs (HIGH)
@@ -85,7 +86,7 @@ def mcp23017_init():
             except KeyboardInterrupt:
                 raise
             except:
-                print ("---------------> bus initialization failed at input MCP, device :",hex(device))
+                debuglog ("---------------> bus initialization failed at input MCP, device :",hex(device))
 
 def mcp23017_write(pinnametowriteto, pinstatetowrite):
     result = None
@@ -97,14 +98,14 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            print("sqlquery failed in module write...")
-            print(e)
+            debuglog("sqlquery failed in module write...")
+            debuglog(e)
             return
     finally:
         lock.release()
 
     if (result == None):
-        print ("pinname", pinnametowriteto, "not known...")
+        debuglog ("pinname", pinnametowriteto, "not known...")
         return
     (device, gpiobank, pinno) = result
 
@@ -113,7 +114,7 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
     elif gpiobank == "b":
         olat = 0x15  # GPIOB Register for configuring outputs
     else:
-        print ("no such OLAT register =", olat)
+        debuglog ("no such OLAT register =", olat)
         return
     bit = 1 << pinno
     if pinstatetowrite == 1:
@@ -125,10 +126,10 @@ def mcp23017_write(pinnametowriteto, pinstatetowrite):
 
     if virtualmode == False:
         i2cbus.write_byte_data(device, olat, payload)
-        print("writing to device address", hex(device), "gpiobank", gpiobank, "and payload:", bin(payload))
+        debuglog("writing to device address", hex(device), "gpiobank", gpiobank, "and payload:", bin(payload))
 
     else:
-        print("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
+        debuglog("pretending write to device address", hex(device), "with olat", hex(olat), "and payload:", bin(payload))
 
 def mcp23017_read( ):
     try:
@@ -149,8 +150,8 @@ def mcp23017_read( ):
                             except KeyboardInterrupt:
                                 raise
                             except Exception as e:
-                                print("Error in reading MCP")
-                                print(e)
+                                debuglog("Error in reading MCP")
+                                debuglog(e)
                                 read=254
                         elif gpiobank[0] == "b":
                             try:
@@ -158,7 +159,7 @@ def mcp23017_read( ):
                             except KeyboardInterrupt:
                                 raise
                             except:
-                                print("Error in reading MCP")
+                                debuglog("Error in reading MCP")
                                 read=254
 
                     else:
@@ -174,7 +175,7 @@ def mcp23017_read( ):
                             oldpin = sqlcursor.fetchone()
                             newpinvalue = 1 - (read & 1)
                             if oldpin[0] != (1 - (read & 1)):
-                                # print("Old pin value of {0} is {1}, new is {2}. Updating statedb...".format(oldpin[1], oldpin[0], newpinvalue))
+                                # debuglog("Old pin value of {0} is {1}, new is {2}. Updating statedb...".format(oldpin[1], oldpin[0], newpinvalue))
                                 sqlcursor.execute("UPDATE statedb SET pinstate = ? WHERE in_i2caddr = ? AND in_gpiobank=? AND in_pinno=?", (newpinvalue, i2caddr[0], gpiobank[0], bytepos))
                                 processchangedpin(oldpin[1], newpinvalue)
 
@@ -186,7 +187,7 @@ def mcp23017_read( ):
     sqlconnection.commit()
 
 def processchangedpin(pinname, pinvalue):
-    print("new value:", pinname, ":", pinvalue)
+    debuglog("new value:", pinname, ":", pinvalue)
     mqtttopic = "kirchenfelder75/mega-io/state/" + pinname
     if (pinvalue == 0):
         mqttmessage = "OFF"
@@ -199,9 +200,9 @@ def processchangedpin(pinname, pinvalue):
 
 def mqttconnected(client, userdata, flags, rc):
     if rc==0:
-        print("successfully connected to MQTT broker. Returned code =",rc)
+        debuglog("successfully connected to MQTT broker. Returned code =",rc)
     else:
-        print("Bad connection to MQTT broker. Returned code =",rc)
+        debuglog("Bad connection to MQTT broker. Returned code =",rc)
         mqtterrorcode = {
             1: "Connection refused – incorrect protocol version",
             2: "Connection refused – invalid client identifier",
@@ -209,7 +210,7 @@ def mqttconnected(client, userdata, flags, rc):
             4: "Connection refused – bad username or password",
             5: "Connection refused – not authorised"
         }
-        print (mqtterrorcode.get(rc, "Error code unknown..."))
+        debuglog (mqtterrorcode.get(rc, "Error code unknown..."))
 
 def mqtt_connect():
     try:
@@ -223,12 +224,12 @@ def mqtt_connect():
             mqtt_credentials_port = int(data[3])
             mqtt_credentials_sslport = int(data[4])
             mqtt_credentials_websocketport = int(data[5])
-        print("successfully imported MQTT credentials...")
+        debuglog("successfully imported MQTT credentials...")
 
     except KeyboardInterrupt:
         raise
     except:
-        print("error opening mqtt_credentials.csv. Aborting...")
+        debuglog("error opening mqtt_credentials.csv. Aborting...")
         sys.exit()
 
     mqttclient.username_pw_set(mqtt_credentials_user, password=mqtt_credentials_password)
@@ -245,7 +246,7 @@ def mqtt_message_received(client, userdata, message):
     with lock2:
         try:
             mqtttopic=str(message.payload.decode("utf-8"))
-            print("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
+            debuglog("message received " ,mqtttopic, "/ message topic =",message.topic, "/ message qos =", message.qos, "/ message retain flag =", message.retain)
             channel = message.topic.split("command/")[1]
 
             # check if we want to run analog calibration for channel
@@ -260,8 +261,8 @@ def mqtt_message_received(client, userdata, message):
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
-                    print("sqlquery failed in module mqttmesg recieved...")
-                    print(e)
+                    debuglog("sqlquery failed in module mqttmesg recieved...")
+                    debuglog(e)
                     latchingtime = 200 #to avoid blocking of switches
                 finally:
                     lock.release()
@@ -275,7 +276,7 @@ def mqtt_message_received(client, userdata, message):
                     mcp23017_write(channel, 1)
                     todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
                 else:
-                    print("no turning ON as pinstate is already", pinstate)
+                    debuglog("no turning ON as pinstate is already", pinstate)
 
             elif ((mqtttopic == "OFF") or (mqtttopic == "0")):
                 try:
@@ -285,8 +286,8 @@ def mqtt_message_received(client, userdata, message):
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
-                    print("sqlquery failed in module mqttmesg recieved...")
-                    print(e)
+                    debuglog("sqlquery failed in module mqttmesg recieved...")
+                    debuglog(e)
                     latchingtime = 200 #to avoid blocking of switches
                 finally:
                     lock.release()
@@ -300,7 +301,7 @@ def mqtt_message_received(client, userdata, message):
                     mcp23017_write(channel, 1)
                     todolist_time[channel] = [int(round(time.time() * 1000)), latchingtime, 0]
                 else:
-                    print("no turning OFF as pinstate is already", pinstate)
+                    debuglog("no turning OFF as pinstate is already", pinstate)
 
             else:
                 try:
@@ -308,23 +309,23 @@ def mqtt_message_received(client, userdata, message):
                 except KeyboardInterrupt:
                     raise
                 except:
-                    print ("Don't know how to handle topic",mqtttopic,"giving up...")
+                    debuglog ("Don't know how to handle topic",mqtttopic,"giving up...")
                     return
                 if ((setvalue > 0) and (setvalue <= 100)):
                     mcp23017_write(channel, 1)
                     todolist_value[channel] = setvalue
                 else:
-                    print ("Only numbers between 0 and 100 are supported.", setvalue, "seemes to be outside...") 
+                    debuglog ("Only numbers between 0 and 100 are supported.", setvalue, "seemes to be outside...") 
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            print("error in mqtt_message_received: %s" % str(e))
-            print("full traceback follows:")
-            print(traceback.format_exc())
+            debuglog("error in mqtt_message_received: %s" % str(e))
+            debuglog("full traceback follows:")
+            debuglog(traceback.format_exc())
             raise
 
 def mqttsubscribed(client, userdata, mid, granted_qos):
-    print ("successfully subscribed to MQTT topic with qos levels:", granted_qos)
+    debuglog ("successfully subscribed to MQTT topic with qos levels:", granted_qos)
 
 def checktolist_value():
     poplist = set()
@@ -336,8 +337,8 @@ def checktolist_value():
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            print("sqlquery failed in module checktolistvalue...")
-            print(e)
+            debuglog("sqlquery failed in module checktolistvalue...")
+            debuglog(e)
         finally:
             lock.release()
         actualvalue = ads1115_convert(todolistitem, actualvalue)
@@ -358,8 +359,8 @@ def checktodolist_time():
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                print("sqlquery failed in module checktodolist...")
-                print(e)
+                debuglog("sqlquery failed in module checktodolist...")
+                debuglog(e)
                 return
             finally:
                 lock.release()
@@ -378,8 +379,8 @@ def ads1115_read():
     except KeyboardInterrupt:
         raise
     except Exception as e:
-        print("sqlquery failed in module adsread_i2caddrs...")
-        print(e)
+        debuglog("sqlquery failed in module adsread_i2caddrs...")
+        debuglog(e)
         return
     for i2caddr in i2caddrs:
         try:
@@ -391,8 +392,8 @@ def ads1115_read():
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            print("sqlquery failed in module adsread_pins...")
-            print(e)
+            debuglog("sqlquery failed in module adsread_pins...")
+            debuglog(e)
             return
         for pin in pins:
             if virtualmode == False:
@@ -402,7 +403,7 @@ def ads1115_read():
                     raise
                 except:
                     read = 0
-                    print ("Error reading ADS", i2caddr[0])
+                    debuglog ("Error reading ADS", i2caddr[0])
             else:
                 read = 0
             try:
@@ -440,7 +441,7 @@ def analogin_calibration(pinname):
         calibwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
         calibwriter.writerows(oldcsvcontent)
 
-    print("starting calibration of channel:",pinname)
+    debuglog("starting calibration of channel:",pinname)
     maximum = -100000
     minimum = 100000
     mean = list()
@@ -462,22 +463,22 @@ def analogin_calibration(pinname):
 
     mcp23017_write(pinname,0)
     time.sleep(1)
-    print("Minimum for channel", pinname, "was", minimum)
-    print("Maximum for channel", pinname, "was", maximum)
+    debuglog("Minimum for channel", pinname, "was", minimum)
+    debuglog("Maximum for channel", pinname, "was", maximum)
 
     mcp23017_write(pinname,1)
     time.sleep(.2)
     mcp23017_write(pinname,0)
-    print("Detecting zero value")
+    debuglog("Detecting zero value")
     time.sleep(2)
     starttime = int(round(time.time() * 1000))
     while int(round(time.time() * 1000)) - starttime < 10000:
         mean.append(ADS[targetchannel[0]].read_adc(targetchannel[1], gain=ADS["gain"]))
         time.sleep(.01)
 
-    print ("Mean zero value :", sum(mean)/len(mean))
-    print ("Min zero value :", min(mean))
-    print ("Max zero value :", max(mean))
+    debuglog ("Mean zero value :", sum(mean)/len(mean))
+    debuglog ("Min zero value :", min(mean))
+    debuglog ("Max zero value :", max(mean))
     with open('calibration.csv', 'a', newline='') as csvfile:
         calibwriter = csv.writer(csvfile, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL)
         calibwriter.writerow([pinname, min(mean), sum(mean)/len(mean), max(mean), minimum, maximum])
@@ -507,7 +508,12 @@ def ads1115_convert(pinname, rawvalue):
             returnvalue = 100
     return(returnvalue)
 
-
+def debuglog(*l):
+    s = " ".join(str(x) for x in l)
+    logmessage = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ": " + s
+    print (logmessage)
+    with open("mega-io-pi.log", "a") as logfile:
+        logfile.write(logmessage + "\n")
 
 statedb_init()
 mcp23017_init()
@@ -517,7 +523,13 @@ mqtt_connect()
 starttime = time.time()
 # the main loop
 while True:
-    mqttclient.loop(0.001)
+    if mqttclient.loop(0.001) != mqtt.MQTT_ERR_SUCCESS:
+        debuglog("MQTT loop unsuccessfull - waiting a moment, then trying to reconnect")
+        time.sleep(.1)
+        try:
+            mqttclient.reconnect()
+        except (socket.error, WebsocketConnectionError):
+            debuglog("MQTT reconnect unsuccessfull. Ignoring.")
     checktodolist_time()
     checktolist_value()
     mcp23017_read()
